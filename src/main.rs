@@ -25,9 +25,29 @@ impl Event {
 	}
 }
 
-fn data_to_values(data: &Vec<u8>) -> Vec<u32>{
+fn validate(values: &Vec<u32>) -> bool {
+	if values.len() != 5 {
+		return false;
+	}
 
-	data
+	let comp =
+	(values[0] +
+	values[1] +
+	values[2] +
+	values[3]) as u8;
+
+	//println!("comparing {} {} {} {} = {} and {}", values[0],values[1],values[2],values[3],comp,values[4]);
+	comp == values[4] as u8
+}
+
+fn combine(values: &Vec<u32>) -> Vec<u32> {
+	[values[0] * (16 as u32).pow(2) + values[1],
+	 values[2] * (16 as u32).pow(2) + values[3]].to_vec()
+}
+
+fn data_to_values(data: &Vec<u8>) -> Option<Vec<u32>> {
+
+	let res = data
 		.chunks(4)
 		.map(|chunk| {
 			// is this a fold?
@@ -39,29 +59,23 @@ fn data_to_values(data: &Vec<u8>) -> Vec<u32>{
 			total
 		})
 		.collect::<Vec<u32>>()
-		.chunks(4)
+		.chunks(2)
 		.map(|chunk| {
-			// is this a fold?
-			let mut total : u32 = 0;
-			match chunk.len() {
-				4 => {
-					for (i,digit) in chunk.iter().enumerate() {
-						let exp = (3-i) as u32;
-						total += *digit * (16 as u32).pow(exp);
-					}
-					total
-				},
-				2 => {
-					for (i,digit) in chunk.iter().enumerate() {
-						let exp = (1-i) as u32;
-						total += *digit * (16 as u32).pow(exp);
-					}
-					total
-				},
-				_ => 0, // ERROR
+			let mut nibble = 0;
+			for (i,digit) in chunk.iter().enumerate() {
+				let exp = (1-i) as u32;
+				let value = *digit * (16 as u32).pow(exp);
+				nibble += value;
 			}
+			nibble
 		})
-		.collect()
+		.collect::<Vec<u32>>();
+
+	if validate(&res) {
+		Some(combine(&res))
+	} else {
+		None
+	}
 }
 
 fn events_to_data(events: &[Event]) -> Vec<u8> {
@@ -94,8 +108,8 @@ fn read_bits(line: &Line, events: &mut Vec<Event>) {
 
 	let mut last_state = input.get_value().unwrap();
 
-	// make sure this loop doesn't hang
-	loop {
+	let start = time::Instant::now();
+	while start.elapsed() < time::Duration::from_secs(5) {
 		let new_state = input.get_value().unwrap();
 		if new_state != last_state {
 			let timestamp = time::Instant::now();
@@ -131,8 +145,11 @@ fn main() {
 		let mut events : Vec<Event> = Vec::with_capacity(83);
 		read_bits(&line, &mut events);
 		let data = events_to_data(&events);
-		let values = data_to_values(&data);
-		println!("Temperature: {}, Humidity: {}", values[1] as f32/10., values[0] as f32/10.);
-		thread::sleep(time::Duration::from_secs(10));
+		let s = match data_to_values(&data) {
+			Some(d) =>  {println!("Temperature: {}, Humidity: {} ({} samples)", d[1] as f32/10., d[0] as f32/10., events.len()); 10},
+			None => {println!("Parity failed, so skipping");3},
+		};
+
+		thread::sleep(time::Duration::from_secs(s));
 	}
 }
